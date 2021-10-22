@@ -20,3 +20,4 @@ $ cd ~/workspace_AKIG/src/ethzasl_xsens_driver/nodes
 $ rosrun xsens_driver mtdevice.py
 $ rosrun xsens_driver mtnode.py _device:=/dev/ttyUSB0 _baudrate:=115200
 ´´´
+asdf
