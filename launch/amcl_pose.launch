@@ -1,0 +1,10 @@
+<launch>
+	<node pkg="rosbag" type="play" name="player" args="--loop $(find akig_2022)/rosbag/husky_with_imu.bag"/>
+	<node name="akig_plotter" pkg="akig_2022" type="plotter.py" output="screen">
+		<param name="plot_pose" value="true" />
+		<param name="plot_track" value="true" />
+		<param name="plot_cov" value="true" />
+		<param name="topic" value="/amcl_pose" />
+		<param name="deque_limit" value="100" /> 
+	</node>
+</launch>

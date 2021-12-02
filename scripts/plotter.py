@@ -1,39 +1,29 @@
 #!/usr/bin/env python3
+import sys
 import math
 
 from collections import deque
 
 import rospy 
 from geometry_msgs.msg import PoseWithCovarianceStamped as PWCS
+from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion
-
 
 from matplotlib import pyplot as plt
 from matplotlib.patches import Ellipse
 
 
+
+
 MSG_TYPES = {
-##    '/odometry/filtered': Odometry,
+    '/odometry/filtered': Odometry,
 ##    '/joint_states': JointState,
     '/amcl_pose': PWCS,
 ##    '/novatel_data/rawimudata_SIunits': Imu,
 ##    '/particlecloud': PoseArray
     }
 
-##FIG, AX = plt.subplots()
 
-deque_lim = 30 
-
-STATES = {
-    'pose_x': deque([],deque_lim),
-    'pose_y': deque([],deque_lim),
-    'pose_z': deque([],deque_lim),
-    'ori_x': deque([],deque_lim),
-    'ori_y': deque([],deque_lim),
-    'ori_z': deque([],deque_lim),
-    'ori_w': deque([],deque_lim),
-    'cov': deque([],deque_lim)
-    }
 
 def error_ellipse(cov_mat):
     #    Covariance Matrix   
@@ -68,8 +58,14 @@ def error_ellipse(cov_mat):
 
 
 def plot_pose_with_covariance(msg):
-    ax = plt.gca()
+    print(msg)
+    # Figure decorations
+    plt.title(f'AKIG Plotter - {topic}')
+    plt.xlabel('[m]')
+    plt.ylabel('[m]')
     
+    ax = plt.gca()
+
     # Update values in the deque
     STATES['pose_x'].append(msg.pose.pose.position.x)
     STATES['pose_y'].append(msg.pose.pose.position.y)
@@ -79,30 +75,33 @@ def plot_pose_with_covariance(msg):
     STATES['ori_z'].append(msg.pose.pose.orientation.z)
     STATES['ori_w'].append(msg.pose.pose.orientation.w)
     STATES['cov'].append(msg.pose.covariance)
+
     
     # plot/update track
-    track, = plt.plot(
-        STATES['pose_x'],
-        STATES['pose_y'],
-        color='tab:blue',
-        label='Track',
-        )
+    if plot_track:
+        track, = plt.plot(
+            STATES['pose_x'],
+            STATES['pose_y'],
+            color='tab:blue',
+            label='Track',
+            )
 
     # plot current pose and orientation (point)
-    yaw = euler_from_quaternion([
-            STATES['ori_x'][-1],
-            STATES['ori_y'][-1],
-            STATES['ori_z'][-1],
-            STATES['ori_w'][-1]
-        ])[2] * 360/math.pi
-    print(yaw)
-    pose, = plt.plot(
-        STATES['pose_x'][-1],
-        STATES['pose_y'][-1],
-        marker=(3,0,yaw),
-        markersize=20,
-        color='tab:red',
-        )
+    if plot_pose:
+        yaw = euler_from_quaternion([
+                STATES['ori_x'][-1],
+                STATES['ori_y'][-1],
+                STATES['ori_z'][-1],
+                STATES['ori_w'][-1]
+            ])[2] * 360/math.pi
+        
+        pose, = plt.plot(
+            STATES['pose_x'][-1],
+            STATES['pose_y'][-1],
+            marker=(3,0,yaw),
+            markersize=20,
+            color='tab:red',
+            )
     
 ##    # plot ori (vector)
 ##    yaw = euler_from_quaternion([
@@ -120,40 +119,60 @@ def plot_pose_with_covariance(msg):
 ##        units='inches'
 ##        )
 
-
     # Plot Error Ellipse
-    mmax, mmin, tau = error_ellipse(STATES['cov'][-1])
-    ellipse = Ellipse(
-        xy=(STATES['pose_x'][-1],STATES['pose_y'][-1]),
-        width=mmax,
-        height=mmin,
-        angle=tau*360/math.pi,
-        fc='None',
-        edgecolor='r'
-        )
-    
-    ellipses = plt.gca().add_artist(ellipse)
+    if plot_ellipse:
+        mmax, mmin, tau = error_ellipse(STATES['cov'][-1])
+        ellipse = Ellipse(
+            xy=(STATES['pose_x'][-1],STATES['pose_y'][-1]),
+            width=mmax,
+            height=mmin,
+            angle=tau*360/math.pi,
+            fc='None',
+            edgecolor='r'
+            )
+        
+        ellipses = plt.gca().add_artist(ellipse)
 
-    # Figure decorations
-    plt.title("AKIG Plotter")
-    plt.xlabel('[m]')
-    plt.ylabel('[m]')
     
     # update figure
     plt.draw()
-    plt.pause(0.0000000001)
+    plt.pause(0.00001)
 
-    track.remove()
-    pose.remove()
-    ellipse.remove()
+    if plot_track:
+        track.remove()
+    if plot_pose:
+        pose.remove()
+    if plot_ellipse:
+        ellipse.remove()
     
 
 def listener():
     rospy.init_node('akig_plotter', anonymous=True)
-    rospy.Subscriber('/amcl_pose', PWCS, plot_pose_with_covariance)
+    rospy.Subscriber(topic, MSG_TYPES[topic], plot_pose_with_covariance)
     rospy.spin()
 
-if __name__=='__main__':
+################################################################################
+
+if __name__=='__main__':   
+    # handle arguments
+    plot_pose = rospy.get_param('/akig_plotter/plot_pose', default=True)
+    plot_track = rospy.get_param('/akig_plotter/plot_track', default=True)
+##    plot_ori = rospy.get_param('/akig_plotter/plot_ori')
+    plot_ellipse = rospy.get_param('/akig_plotter/plot_cov', default=True)
+    topic = rospy.get_param('/akig_plotter/topic', default='/amcl_pose')
+    deque_lim = rospy.get_param('/akig_plotter/deque_limit', default=500)
+
+    STATES = {
+        'pose_x': deque([],deque_lim),
+        'pose_y': deque([],deque_lim),
+        'pose_z': deque([],deque_lim),
+        'ori_x': deque([],deque_lim),
+        'ori_y': deque([],deque_lim),
+        'ori_z': deque([],deque_lim),
+        'ori_w': deque([],deque_lim),
+        'cov':deque([],deque_lim)
+        }
+    
     plt.ion()
     plt.show()
 
