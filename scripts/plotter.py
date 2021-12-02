@@ -114,6 +114,7 @@ def plot_pose_with_covariance(msg):
             marker=(3,0,yaw),
             markersize=20,
             color='tab:red',
+            label='pose and orientation'
             )
     
 ##    # plot ori (vector)
@@ -141,13 +142,22 @@ def plot_pose_with_covariance(msg):
             height=mmin,
             angle=tau*360/math.pi,
             fc='None',
-            edgecolor='r'
+            edgecolor='r',
+            label='Error Ellipse'
             )
         
         ellipses = plt.gca().add_artist(ellipse)
 
-    
+
+    # aggregate handles for legend
+    legend = [
+        track,
+        pose,
+        ellipse
+        ]
+
     # update figure
+    ax.legend(handles=legend, loc='lower right')
     plt.draw()
     plt.pause(0.00001)
 
@@ -155,7 +165,7 @@ def plot_pose_with_covariance(msg):
         track.remove()
     if plot_pose:
         pose.remove()
-    if plot_ellipse:
+    if plot_ellipse and False:
         ellipse.remove()
     
 
