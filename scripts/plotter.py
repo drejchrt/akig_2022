@@ -14,7 +14,7 @@ from matplotlib.patches import Ellipse
 
 
 
-
+# Dictionary, that translates topic to message type classes
 MSG_TYPES = {
     '/odometry/filtered': Odometry,
 ##    '/joint_states': JointState,
@@ -26,6 +26,14 @@ MSG_TYPES = {
 
 
 def error_ellipse(cov_mat):
+    """
+    Takes 36 float values representing a 6x6 covariance matrix that contains
+    variances of a position and a orientation and outputs the parameters of
+    an error ellipse:
+    1) Semi major axis (mmax)
+    2) Semi minor axis (mmin)
+    3) Orientation (tau)
+    """
     #    Covariance Matrix   
     #
     #        px py pz ox oy oz       
@@ -58,7 +66,12 @@ def error_ellipse(cov_mat):
 
 
 def plot_pose_with_covariance(msg):
-    print(msg)
+    """
+    Callback function for the subscriber node.
+    It pushes the values from the message into the STATES variable
+    and plots the values from current message
+
+    """
     # Figure decorations
     plt.title(f'AKIG Plotter - {topic}')
     plt.xlabel('[m]')
@@ -155,13 +168,18 @@ def listener():
 
 if __name__=='__main__':   
     # handle arguments
+    # store the user's decisions, what should be plotted 
     plot_pose = rospy.get_param('/akig_plotter/plot_pose', default=True)
     plot_track = rospy.get_param('/akig_plotter/plot_track', default=True)
 ##    plot_ori = rospy.get_param('/akig_plotter/plot_ori')
     plot_ellipse = rospy.get_param('/akig_plotter/plot_cov', default=True)
+    # topic from which the pose is taken (currently /amcl_pose and /odometry/filtered)
     topic = rospy.get_param('/akig_plotter/topic', default='/amcl_pose')
+    # How many states should be stored 
     deque_lim = rospy.get_param('/akig_plotter/deque_limit', default=500)
 
+    # This dictionary stores a state. Deque = Double Ended Queue.
+    # Deque resembles shift register
     STATES = {
         'pose_x': deque([],deque_lim),
         'pose_y': deque([],deque_lim),
@@ -173,8 +191,8 @@ if __name__=='__main__':
         'cov':deque([],deque_lim)
         }
     
-    plt.ion()
-    plt.show()
+    plt.ion()   # Turn on interactive mode, so that the plot remains opened
+    plt.show()  # Open the (for now) empty figure
 
-    listener()
+    listener()  # Run the node
     
