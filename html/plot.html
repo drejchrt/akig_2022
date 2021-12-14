@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+
+ <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/9.3.2/math.js"></script> 
+<script type="text/javascript" src="http://static.robotwebtools.org/EventEmitter2/current/eventemitter2.min.js"></script>
+<script type="text/javascript" src="http://static.robotwebtools.org/roslibjs/current/roslib.min.js"></script>
+
+<style>
+svg #odometryPose line{
+	stroke-linecap:round;
+	vector-effect:non-scaling-stroke;
+}
+
+.hidden{
+	visibility:hidden;
+}
+
+</style>
+</head>
+<body>
+ <h1>Hairy Plotter</h1>
+ <!-- <button id="start">Start!</button> -->
+ <button id="stop">Stop!</button>
+ <svg id="plot" style="border:1px solid #CFCFCF;"></svg>
+ 
+ <code id="log">
+ </code>
+ 
+ 
+ 
+<script type="text/javascript" type="text/javascript">
+ 	
+    msgsTypes = { 
+    '/odometry/filtered': 'nav_msgs/Odometry',
+    '/joint_states': 'JointState', //change
+    '/amcl_pose': 'geometry_msgs/PoseWithCovarianceStamped',
+    '/novatel_data/rawimudata_SIunits': 'Imu', //change
+    '/particlecloud': 'PoseArray' //change
+    }
+ 
+ 
+  // Connecting to ROS
+  // -----------------
+
+  var ros = new ROSLIB.Ros({
+    url : 'ws://localhost:9090'
+  });
+
+  ros.on('connection', function() {
+    console.log('Connected to websocket server.');
+  });
+
+  ros.on('error', function(error) {
+    console.log('Error connecting to websocket server: ', error);
+  });
+
+  ros.on('close', function() {
+    console.log('Connection to websocket server closed.');
+  });
+  
+function stop_listener(lst){
+	console.log(lst)
+	lst.unsubscribe()
+}
+
+function start_listener(topic, log){
+	var listener = new ROSLIB.Topic({
+			ros : ros,
+			name: topic,
+			messageType: msgsTypes[topic],
+
+			//name : '/amcl_pose',
+			//messageType : 'geometry_msgs/PoseWithCovarianceStamped'
+		});
+	
+	if (topic=='/odometry/filtered') {
+		listener.subscribe(function(message) {
+			odometryPose.plotQueue.unshift([message.pose.pose.position.x, message.pose.pose.position.y]);
+			evt = new CustomEvent('newData', {
+				'detail': {
+					'topic':'/odometry/filtered'	
+				}	
+			});
+			svg.dispatchEvent(evt);
+		});
+	}
+	
+	return listener
+}
+
+</script>
+ 
+<script>
+/********************************* plot **************************************/
+/*****************************************************************************/
+
+function updatePlot(topic){
+	if (topic=='/odometry/filtered'){
+		while (odometryPose.plotQueue.length !=0){
+			var datapoint = odometryPose.plotQueue.pop()
+			plot_point(datapoint,odometryPose)
+			odometryPose.data.push(datapoint)
+		}
+			
+	}
+}
+
+function plot_point(coords,layer){
+	var g = svg.getElementById(layer.id);
+	svgRep = makeSVG('line',{
+		'x1': coords[0],
+		'x2': coords[0],
+		'y1': coords[1],
+		'y2': coords[1],
+		'stroke': layer.style.color,
+		'stroke-width': layer.style.size,
+		'transform':'matrix('+ tm.join(' ') + ')'
+		});	
+	
+	g.appendChild(svgRep);
+	
+}
+
+function makeSVG(tag, attrs) {
+            var el= document.createElementNS('http://www.w3.org/2000/svg', tag);
+            for (var k in attrs)
+                el.setAttribute(k, attrs[k]);
+            return el;
+        }
+        
+function change_trafo(P1,p1,P2,p2,P3,p3){
+	var [X_1, Y_1] = P1;
+	var [X_2, Y_2] = P2;
+	var [X_3, Y_3] = P3;
+	var [x_1, y_1] = p1;
+	var [x_2, y_2] = p2;
+	var [x_3, y_3] = p3;
+
+	var A = math.matrix([
+		[x_1, y_1, 1, 0, 0, 0],
+		[0, 0, 0, x_1, y_1, 1],
+		[x_2, y_2, 1, 0, 0, 0],
+		[0, 0, 0, x_2, y_2, 1],
+		[x_3, y_3, 1, 0, 0, 0],
+		[0, 0, 0, x_3, y_3, 1],
+	]);
+	var X = math.matrix([
+		[X_1],
+		[Y_1],
+		[X_2],
+		[Y_2],
+		[X_3],
+		[Y_3],
+	]);
+
+	var trafo_params = math.multiply(math.inv(A),X);
+	var [[a],[c],[e],[b],[d],[f]] = trafo_params._data;
+	tm = [a,b,c,d,e,f]
+}
+
+function trafo_point(point){
+	var [x,y] = point
+	return [
+		tm[0]*x + tm[2]*y + tm[4], 
+		tm[1]*x + tm[3]*y + tm[5]
+	];
+}
+
+function setup_plot(width=800, height=600, xlim=[0,8], ylim=[0,6], padding=0.05){
+	
+	svg.setAttribute('width', width);
+	svg.setAttribute('height', height);
+	
+	var ax0_svg = [padding*width, (1-padding)*height];
+	var ax0_plt = [xlim[0], ylim[0]];
+	var ax1_svg = [(1-padding)*width, (1-padding)*height];
+	var ax1_plt = [xlim[1], ylim[0]];
+	var ax2_svg = [padding*width, padding*height];
+	var ax2_plt = [xlim[0], ylim[1]];
+
+	change_trafo(ax0_svg, ax0_plt, ax1_svg, ax1_plt, ax2_svg, ax2_plt);
+
+	for (l of layers){
+		var g = makeSVG('g',{
+			id:l.id,
+			class:'layer data'
+		});
+		svg.appendChild(g);
+	}	
+}
+
+/******************************************************************************/
+
+var svg = document.getElementById('plot');
+var tm = [1,0,0,1,0,0];
+ 
+var odometryPose = {
+	type:'pose',
+	id:'odometryPose', // id of the <g> element containg the data
+	style: {
+		size:2,
+		color:'#000000',
+	},
+	source:'/odometry/filtered/pose/pose/position',
+	label:'odometry pose',
+	plotQueue:[],
+	data:[]
+}
+
+var layers = [
+	odometryPose
+];
+
+
+setup_plot(800, 600, [0, 2], [0, 2], 0.05)
+
+svg.addEventListener("newData", function(e) {
+	updatePlot(e.detail.topic)	
+});
+
+
+</script>
+ 
+ <script>
+	var log = document.getElementById('log');
+	//var start_button = document.getElementById('start');
+	var stop_button = document.getElementById('stop');
+	// Subscribing to a Topic
+	// ----------------------
+	window.onload = function(){
+		listener = start_listener('/odometry/filtered', log);
+		stop_button.addEventListener('click', function(){stop_listener(listener)});
+	};
+	
+ </script>
+</body>
+</html>
