@@ -2,16 +2,39 @@
 <html>
 <head>
 <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 
- <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/9.3.2/math.js"></script> 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/9.3.2/math.js"></script> 
 <script type="text/javascript" src="http://static.robotwebtools.org/EventEmitter2/current/eventemitter2.min.js"></script>
 <script type="text/javascript" src="http://static.robotwebtools.org/roslibjs/current/roslib.min.js"></script>
 
+
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+
 <style>
-svg #odometryPose line{
+html,body {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	font-size: 100%;
+	font: inherit;
+	vertical-align: baseline;
+	
+	font-family: Helvetica;
+}
+
+
+
+svg #odometryPose line, 
+svg #odometryTrack polyline {
 	stroke-linecap:round;
 	vector-effect:non-scaling-stroke;
+
 }
+svg #odometryPose symbol {
+	/*transform-origin:center;*/
+}
+
 
 .hidden{
 	visibility:hidden;
@@ -20,14 +43,33 @@ svg #odometryPose line{
 </style>
 </head>
 <body>
- <h1>Hairy Plotter</h1>
- <!-- <button id="start">Start!</button> -->
- <button id="stop">Stop!</button>
- <svg id="plot" style="border:1px solid #CFCFCF;"></svg>
- 
- <code id="log">
- </code>
- 
+	<div class="row">
+		<div class="col-10">
+			<div class="card m-3">
+				<div class="card-header">
+					<h1>Hairy Plotter</h1>
+				</div>
+				<div class="card-body">
+					<svg id="plot" style="border:1px solid #CFCFCF;"></svg>
+				</div>
+				<div class="card-footer">
+					<button id="stop" class="btn btn-danger">Stop!</button>
+				</div>
+			</div>
+		</div>
+		<div class="col-2">
+			<div class="card m-3">
+				<div class="card-header">
+					<h1>Legend</h1>
+				</div>
+				<div id="legend" class="card-body">
+					
+				</div>
+			</div>
+			
+		</div>
+	</div>
+ 	
  
  
 <script type="text/javascript" type="text/javascript">
@@ -77,7 +119,16 @@ function start_listener(topic, log){
 	
 	if (topic=='/odometry/filtered') {
 		listener.subscribe(function(message) {
-			odometryPose.plotQueue.unshift([message.pose.pose.position.x, message.pose.pose.position.y]);
+			// unshift = push to the beginning of the array. The plot update function pops the items from the queue (FIFO)
+			odometryTrack.plotQueue.unshift([message.pose.pose.position.x, message.pose.pose.position.y]);
+			odometryPose.position = [message.pose.pose.position.x, message.pose.pose.position.y];
+			odometryPose.orientation = [
+				message.pose.pose.orientation.x, 
+				message.pose.pose.orientation.y,
+				message.pose.pose.orientation.z,
+				message.pose.pose.orientation.w,
+			]
+			// Notify the update function 
 			evt = new CustomEvent('newData', {
 				'detail': {
 					'topic':'/odometry/filtered'	
@@ -98,16 +149,23 @@ function start_listener(topic, log){
 
 function updatePlot(topic){
 	if (topic=='/odometry/filtered'){
-		while (odometryPose.plotQueue.length !=0){
-			var datapoint = odometryPose.plotQueue.pop()
-			plot_point(datapoint,odometryPose)
-			odometryPose.data.push(datapoint)
-		}
-			
+		// Update Odoemtry Pose
+		updatePose(odometryPose)
+		//while (odometryPose.plotQueue.length !=0){
+		//	var datapoint = odometryPose.plotQueue.pop()
+		//	plot_point(datapoint,odometryPose)
+		//	odometryPose.data.push(datapoint)
+		//}
+		// Update Odoemtry Track
+		while (odometryTrack.plotQueue.length !=0){
+			var datapoint = odometryTrack.plotQueue.pop();
+			updateTrack(datapoint,odometryTrack);
+			odometryTrack.data.push(datapoint);
+		}	
 	}
 }
-
 function plot_point(coords,layer){
+
 	var g = svg.getElementById(layer.id);
 	svgRep = makeSVG('line',{
 		'x1': coords[0],
@@ -122,6 +180,46 @@ function plot_point(coords,layer){
 	g.appendChild(svgRep);
 	
 }
+
+function updatePose(layer){
+	
+	var g = svg.getElementById(layer.id);
+	var [x,y] = trafo_point(layer.position);
+	var ori = yaw_from_quaternion(layer.orientation) + 90;	
+	var use; 
+	if (g.getElementsByTagName('use')[0] !== undefined){
+		use = g.getElementsByTagName('use')[0];
+		use.setAttribute('x', x-layer.style.size/2);
+		use.setAttribute('y', y);
+		//use.setAttribute('transform-orgin','50% 50%');
+	    use.setAttribute('transform','rotate('+ -ori +', ' + x + ',' + y + ')');
+	    //use.setAttribute('transform','rotate('+ ori +')');
+	    //use.setAttribute('transform','rotate('+ ori +') translate(' + -x + ','+ -y + ')');
+	    //use.setAttribute('transform', 'translate(' + x + ','+ y + ')');
+	}
+	else {
+		use = makeSVG('use', {
+			href:"#" + layer.id + 'Symbol',
+			x:x,
+			y:y,
+			//'transform-origin':'center',
+			transform:'rotate('+ ori +', ' + x + ',' + y + ')'
+			//transform:'translate(' + x + ','+ y + ')'
+			//transform:'rotate('+ ori +' deg) translate(' + x + ','+ y + ')',
+		});
+		g.append(use);
+	}
+};
+
+	
+function updateTrack(coords,layer){
+	var line = svg.getElementById(layer.id).firstChild;
+	var points = (line.getAttribute('points') !== null ? line.getAttribute('points') : '');
+	points += coords.join(',') + ' ';
+	line.setAttribute("points", points);
+	
+}
+
 
 function makeSVG(tag, attrs) {
             var el= document.createElementNS('http://www.w3.org/2000/svg', tag);
@@ -182,13 +280,73 @@ function setup_plot(width=800, height=600, xlim=[0,8], ylim=[0,6], padding=0.05)
 
 	change_trafo(ax0_svg, ax0_plt, ax1_svg, ax1_plt, ax2_svg, ax2_plt);
 
+	// initialize layers
 	for (l of layers){
+		// group for each layer
 		var g = makeSVG('g',{
 			id:l.id,
 			class:'layer data'
 		});
+		
+		// track -> Initilaize the polyline
+		if (l.type == 'track'){
+			var line = makeSVG('polyline',{
+				'stroke':l.style.color,
+				'stroke-width':l.style.size,
+				'stroke-linejoin':'round', 
+				'fill':'none',
+				'transform':'matrix(' + tm.join(' ') + ')'
+			})
+			g.append(line)
+		}
+		
+		// pose -> define a symbol and append it on the beginning of the 
+		if (l.type == 'pose'){
+			var symbolTag = makeSVG('symbol',{
+				id: l.id + 'Symbol',
+				width:l.style.size,
+				height:l.style.size,
+				viewBox: [-l.style.size, -l.style.size, 2*l.style.size, 2*l.style.size].join(' ')
+			});
+			var sympts = [
+					[-l.style.size/2, -l.style.size],
+					[l.style.size/2, -l.style.size],
+					[0, l.style.size]
+				];
+			var symbol = makeSVG('polyline',{
+				points: sympts.join(' '),
+				fill:l.style.color,
+				
+			});
+			
+			symbolTag.append(symbol);
+			g.append(symbolTag);
+			
+		}
 		svg.appendChild(g);
 	}	
+	// Add legend entries
+	var legend = document.getElementById('legend')
+	for (l of layers){
+		var button = document.createElement('button');
+		button.setAttribute('class','btn btn-primary m-1');
+		button.setAttribute('data-group',l.id)
+		button.innerHTML = l.label;
+		button.onclick = function(e) {
+			e.target.classList.toggle('btn-primary');
+			e.target.classList.toggle('btn-outline-primary');
+			svg.getElementById(e.target.getAttribute('data-group')).classList.toggle('hidden');
+		}
+		legend.append(button);
+	}
+	
+}
+
+function yaw_from_quaternion(q){
+	var [q1,q2,q3,q0] = q
+	return math.atan2(2.0 * (q3 * q0 + q1 * q2) , - 1.0 + 2.0 * (q0 * q0 + q1 * q1)) * 180/math.pi;
+
+	//return math.atan2(2.0*(q[1]*q[2] + q[3]*q[0]), q[3]*q[3] - q[0]*q[0] - q[1]*q[1] + q[2]*q[2])*180/math.pi;
 }
 
 /******************************************************************************/
@@ -200,21 +358,35 @@ var odometryPose = {
 	type:'pose',
 	id:'odometryPose', // id of the <g> element containg the data
 	style: {
-		size:2,
-		color:'#000000',
+		size:30,
+		color:'#ff7f0e',
 	},
 	source:'/odometry/filtered/pose/pose/position',
 	label:'odometry pose',
+	position:[],
+	orientation: 0
+}
+
+var odometryTrack = {
+	type:'track',
+	id:'odometryTrack',
+	style:{
+		size:2,
+		color:'#1f77b4'
+	},
+	source:'/odometry/filtered/pose/pose/position',
+	label:'odometry track',
 	plotQueue:[],
 	data:[]
 }
 
 var layers = [
-	odometryPose
+	odometryPose,
+	odometryTrack
 ];
 
 
-setup_plot(800, 600, [0, 2], [0, 2], 0.05)
+setup_plot(640, 480, [0, 2], [0, 2], 0.05)
 
 svg.addEventListener("newData", function(e) {
 	updatePlot(e.detail.topic)	
@@ -235,5 +407,11 @@ svg.addEventListener("newData", function(e) {
 	};
 	
  </script>
+ 
+<script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
 </body>
 </html>
