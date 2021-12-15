@@ -25,8 +25,8 @@ html,body {
 
 
 
-svg #odometryPose line, 
-svg #odometryTrack polyline {
+svg .pose line, 
+svg .track polyline {
 	stroke-linecap:round;
 	vector-effect:non-scaling-stroke;
 
@@ -53,6 +53,7 @@ svg #odometryPose symbol {
 					<svg id="plot" style="border:1px solid #CFCFCF;"></svg>
 				</div>
 				<div class="card-footer">
+					<button id="start" class="btn btn-success">Start!</button>
 					<button id="stop" class="btn btn-danger">Stop!</button>
 				</div>
 			</div>
@@ -76,10 +77,10 @@ svg #odometryPose symbol {
  	
     msgsTypes = { 
     '/odometry/filtered': 'nav_msgs/Odometry',
-    '/joint_states': 'JointState', //change
+    '/joint_states': 'sensor_msgs/JointState',
     '/amcl_pose': 'geometry_msgs/PoseWithCovarianceStamped',
-    '/novatel_data/rawimudata_SIunits': 'Imu', //change
-    '/particlecloud': 'PoseArray' //change
+    '/novatel_data/rawimudata_SIunits': 'sensor_msgs/Imu',
+    '/particlecloud': 'geometry_msgs/PoseArray' 
     }
  
  
@@ -112,10 +113,13 @@ function start_listener(topic, log){
 			ros : ros,
 			name: topic,
 			messageType: msgsTypes[topic],
-
-			//name : '/amcl_pose',
-			//messageType : 'geometry_msgs/PoseWithCovarianceStamped'
 		});
+
+	var evt = new CustomEvent('newData', {
+		'detail': {
+			'topic':topic	
+		}
+	});
 	
 	if (topic=='/odometry/filtered') {
 		listener.subscribe(function(message) {
@@ -127,17 +131,32 @@ function start_listener(topic, log){
 				message.pose.pose.orientation.y,
 				message.pose.pose.orientation.z,
 				message.pose.pose.orientation.w,
-			]
-			// Notify the update function 
-			evt = new CustomEvent('newData', {
-				'detail': {
-					'topic':'/odometry/filtered'	
-				}	
-			});
+			];
 			svg.dispatchEvent(evt);
 		});
 	}
+	else if (topic=='/amcl_pose') {
+		listener.subscribe(function(message) {
+			amclTrack.plotQueue.unshift([message.pose.pose.position.x, message.pose.pose.position.y])
+			amclPose.position = [message.pose.pose.position.x, message.pose.pose.position.y];
+			amclPose.orientation = [
+				message.pose.pose.orientation.x, 
+				message.pose.pose.orientation.y,
+				message.pose.pose.orientation.z,
+				message.pose.pose.orientation.w,
+			];
+			svg.dispatchEvent(evt);
+		});
 	
+	}
+	else if (topic=='/joint_states') {
+		listener.subscribe(function(message) {
+			jointStatesTrack.plotQueue.unshift([message.position[0], message.position[1]]);
+			svg.dispatchEvent(evt);
+		});
+	
+	}
+
 	return listener
 }
 
@@ -150,17 +169,28 @@ function start_listener(topic, log){
 function updatePlot(topic){
 	if (topic=='/odometry/filtered'){
 		// Update Odoemtry Pose
-		updatePose(odometryPose)
-		//while (odometryPose.plotQueue.length !=0){
-		//	var datapoint = odometryPose.plotQueue.pop()
-		//	plot_point(datapoint,odometryPose)
-		//	odometryPose.data.push(datapoint)
-		//}
+		updatePose(odometryPose);
 		// Update Odoemtry Track
 		while (odometryTrack.plotQueue.length !=0){
 			var datapoint = odometryTrack.plotQueue.pop();
 			updateTrack(datapoint,odometryTrack);
 			odometryTrack.data.push(datapoint);
+		}	
+	}
+	else if (topic=='/amcl_pose'){
+		updatePose(amclPose);
+		while (amclTrack.plotQueue.length !=0){
+			var datapoint = amclTrack.plotQueue.pop();
+			updateTrack(datapoint,amclTrack);
+			amclTrack.data.push(datapoint);
+		}	
+	}
+	else if (topic=='/joint_states'){
+		console.log('ere')
+		while (jointStatesTrack.plotQueue.length !=0){
+			var datapoint = jointStatesTrack.plotQueue.pop();
+			updateTrack(datapoint,jointStatesTrack);
+			jointStatesTrack.data.push(datapoint);
 		}	
 	}
 }
@@ -191,21 +221,14 @@ function updatePose(layer){
 		use = g.getElementsByTagName('use')[0];
 		use.setAttribute('x', x-layer.style.size/2);
 		use.setAttribute('y', y);
-		//use.setAttribute('transform-orgin','50% 50%');
 	    use.setAttribute('transform','rotate('+ -ori +', ' + x + ',' + y + ')');
-	    //use.setAttribute('transform','rotate('+ ori +')');
-	    //use.setAttribute('transform','rotate('+ ori +') translate(' + -x + ','+ -y + ')');
-	    //use.setAttribute('transform', 'translate(' + x + ','+ y + ')');
 	}
 	else {
 		use = makeSVG('use', {
 			href:"#" + layer.id + 'Symbol',
 			x:x,
 			y:y,
-			//'transform-origin':'center',
 			transform:'rotate('+ ori +', ' + x + ',' + y + ')'
-			//transform:'translate(' + x + ','+ y + ')'
-			//transform:'rotate('+ ori +' deg) translate(' + x + ','+ y + ')',
 		});
 		g.append(use);
 	}
@@ -285,7 +308,7 @@ function setup_plot(width=800, height=600, xlim=[0,8], ylim=[0,6], padding=0.05)
 		// group for each layer
 		var g = makeSVG('g',{
 			id:l.id,
-			class:'layer data'
+			class:'layer ' + l.type
 		});
 		
 		// track -> Initilaize the polyline
@@ -364,7 +387,7 @@ var odometryPose = {
 	source:'/odometry/filtered/pose/pose/position',
 	label:'odometry pose',
 	position:[],
-	orientation: 0
+	orientation: [1,0,0,1]
 }
 
 var odometryTrack = {
@@ -380,13 +403,55 @@ var odometryTrack = {
 	data:[]
 }
 
+var amclPose = {
+	type:'pose',
+	id:'amclPose', // id of the <g> element containg the data
+	style: {
+		size:30,
+		color:'#2ca02c',
+	},
+	source:'/amcl_pose/pose/pose/position',
+	label:'amcl pose',
+	position:[],
+	orientation: [1,0,0,1]
+}
+
+var amclTrack = {
+	type:'track',
+	id:'amclTrack',
+	style:{
+		size:2,
+		color:'#d62728'
+	},
+	source:'/amcl_pose/pose/pose/position',
+	label:'amcl track',
+	plotQueue:[],
+	data:[]
+}
+
+var jointStatesTrack = {
+	type:'track',
+	id:'jointStatesTrack',
+	style:{
+		size:2,
+		color:'#9467bd'
+	},
+	source:'/joint_states/position',
+	label:'Joint States track',
+	plotQueue:[],
+	data:[]
+}
+
 var layers = [
 	odometryPose,
-	odometryTrack
+	odometryTrack,
+	amclPose,
+	amclTrack,
+	jointStatesTrack
 ];
 
 
-setup_plot(640, 480, [0, 2], [0, 2], 0.05)
+setup_plot(640, 480, [0, 100], [0, 100], 0.05)
 
 svg.addEventListener("newData", function(e) {
 	updatePlot(e.detail.topic)	
@@ -399,11 +464,20 @@ svg.addEventListener("newData", function(e) {
 	var log = document.getElementById('log');
 	//var start_button = document.getElementById('start');
 	var stop_button = document.getElementById('stop');
-	// Subscribing to a Topic
-	// ----------------------
+	
+	
 	window.onload = function(){
-		listener = start_listener('/odometry/filtered', log);
-		stop_button.addEventListener('click', function(){stop_listener(listener)});
+		listeners = [
+			start_listener('/odometry/filtered'),
+			start_listener('/amcl_pose'),
+			start_listener('/joint_states')	
+		]
+		
+		stop_button.addEventListener('click', function(){
+			for (l of listeners){
+				stop_listener(l);
+			}
+		});
 	};
 	
  </script>
